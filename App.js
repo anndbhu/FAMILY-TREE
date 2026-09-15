@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   SafeAreaView,
   View,
@@ -10,6 +10,9 @@ import {
   Alert,
   StatusBar,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const STORAGE_KEY = "@family_tree_people";
 
 const initialPeople = [
   { id: "1", name: "Дорж", year: "1940", gender: "Эрэгтэй", relation: "Өвөө" },
@@ -49,6 +52,7 @@ export default function App() {
   const [screen, setScreen] = useState("home");
   const [people, setPeople] = useState(initialPeople);
   const [selectedId, setSelectedId] = useState("6");
+  const [editingId, setEditingId] = useState(null);
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({
     name: "",
@@ -56,6 +60,30 @@ export default function App() {
     gender: "Эрэгтэй",
     relation: "Хамаатан",
   });
+
+  // Өгөгдөл утасны санамжаас ачаалах
+  useEffect(() => {
+    loadPeople();
+  }, []);
+
+  // Хүмүүсийн жагсаалт өөрчлөгдөх бүрт санамжинд хадгалах
+  const savePeople = async (newPeople) => {
+    try {
+      setPeople(newPeople);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newPeople));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const loadPeople = async () => {
+    try {
+      const data = await AsyncStorage.getItem(STORAGE_KEY);
+      if (data) setPeople(JSON.parse(data));
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const selectedPerson = people.find((p) => p.id === selectedId) || people[0];
 
@@ -67,29 +95,58 @@ export default function App() {
     );
   }, [people, search]);
 
-  function addPerson() {
+  function handleSavePerson() {
     if (!form.name.trim()) {
       Alert.alert("Анхаарна уу", "Нэрээ оруулна уу.");
       return;
     }
 
-    const newPerson = {
-      id: Date.now().toString(),
-      name: form.name.trim(),
-      year: form.year.trim(),
-      gender: form.gender,
-      relation: form.relation.trim() || "Хамаатан",
-    };
+    if (editingId) {
+      const updated = people.map((p) =>
+        p.id === editingId ? { ...p, ...form } : p
+      );
+      savePeople(updated);
+      setEditingId(null);
+    } else {
+      const newPerson = {
+        id: Date.now().toString(),
+        name: form.name.trim(),
+        year: form.year.trim(),
+        gender: form.gender,
+        relation: form.relation.trim() || "Хамаатан",
+      };
+      savePeople([...people, newPerson]);
+      setSelectedId(newPerson.id);
+    }
 
-    setPeople((prev) => [...prev, newPerson]);
-    setSelectedId(newPerson.id);
-    setForm({
-      name: "",
-      year: "",
-      gender: "Эрэгтэй",
-      relation: "Хамаатан",
-    });
+    setForm({ name: "", year: "", gender: "Эрэгтэй", relation: "Хамаатан" });
     setScreen("tree");
+  }
+
+  function deletePerson(id) {
+    Alert.alert("Устгах", "Энэ хүнийг устгахдаа итгэлтэй байна уу?", [
+      { text: "Үгүй", style: "cancel" },
+      {
+        text: "Тийм",
+        style: "destructive",
+        onPress: () => {
+          const updated = people.filter((p) => p.id !== id);
+          savePeople(updated);
+          setScreen("tree");
+        },
+      },
+    ]);
+  }
+
+  function startEdit(person) {
+    setEditingId(person.id);
+    setForm({
+      name: person.name,
+      year: person.year,
+      gender: person.gender,
+      relation: person.relation,
+    });
+    setScreen("add");
   }
 
   function Header({ title, back = false }) {
@@ -100,18 +157,12 @@ export default function App() {
             <Text style={styles.headerButtonText}>‹</Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity
-            onPress={() => Alert.alert("Ургийн мод", "Эхний хувилбар")}
-            style={styles.headerButton}
-          >
+          <TouchableOpacity onPress={() => Alert.alert("Ургийн мод", "v1.1")} style={styles.headerButton}>
             <Text style={styles.menuText}>☰</Text>
           </TouchableOpacity>
         )}
         <Text style={styles.headerTitle}>{title}</Text>
-        <TouchableOpacity
-          onPress={() => setScreen("search")}
-          style={styles.headerButton}
-        >
+        <TouchableOpacity onPress={() => setScreen("search")} style={styles.headerButton}>
           <Text style={styles.searchIcon}>⌕</Text>
         </TouchableOpacity>
       </View>
@@ -126,10 +177,9 @@ export default function App() {
         <ScrollView contentContainerStyle={styles.homeContent}>
           <View style={styles.hero}>
             <Text style={styles.heroTree}>🌳</Text>
-            <Text style={styles.welcome}>Сайн уу, Энхболд оо!</Text>
+            <Text style={styles.welcome}>Сайн уу!</Text>
             <Text style={styles.subWelcome}>Өөрийн гэр бүлийнхээ модыг бүтээгээрэй.</Text>
           </View>
-
           <TouchableOpacity style={styles.menuCard} onPress={() => setScreen("tree")}>
             <Text style={styles.menuEmoji}>🌳</Text>
             <View style={styles.menuInfo}>
@@ -138,7 +188,6 @@ export default function App() {
             </View>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
-
           <TouchableOpacity style={styles.menuCard} onPress={() => setScreen("search")}>
             <Text style={styles.menuEmoji}>🔎</Text>
             <View style={styles.menuInfo}>
@@ -147,21 +196,18 @@ export default function App() {
             </View>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity style={styles.menuCard} onPress={() => setScreen("add")}>
+          <TouchableOpacity
+            style={styles.menuCard}
+            onPress={() => {
+              setEditingId(null);
+              setForm({ name: "", year: "", gender: "Эрэгтэй", relation: "Хамаатан" });
+              setScreen("add");
+            }}
+          >
             <Text style={styles.menuEmoji}>👨‍👩‍👧</Text>
             <View style={styles.menuInfo}>
               <Text style={styles.menuTitle}>Гэр бүлийн гишүүд</Text>
               <Text style={styles.menuSubtitle}>Шинэ хүн нэмэх</Text>
-            </View>
-            <Text style={styles.chevron}>›</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.menuCard} onPress={() => setScreen("settings")}>
-            <Text style={styles.menuEmoji}>⚙️</Text>
-            <View style={styles.menuInfo}>
-              <Text style={styles.menuTitle}>Тохиргоо</Text>
-              <Text style={styles.menuSubtitle}>Апп-ын тохиргоо</Text>
             </View>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
@@ -184,60 +230,31 @@ export default function App() {
             <Text style={styles.treeSection}>ӨВӨӨ • ЭМЭЭ</Text>
             <View style={styles.row}>
               {grand.map((p) => (
-                <PersonCard
-                  key={p.id}
-                  person={p}
-                  selected={p.id === selectedId}
-                  onPress={() => setSelectedId(p.id)}
-                />
+                <PersonCard key={p.id} person={p} selected={p.id === selectedId} onPress={() => setSelectedId(p.id)} />
               ))}
             </View>
-
             <Text style={styles.connector}>│{"\n"}▼</Text>
-
             <Text style={styles.treeSection}>ААВ • ЭЭЖ</Text>
             <View style={styles.row}>
               {parents.map((p) => (
-                <PersonCard
-                  key={p.id}
-                  person={p}
-                  selected={p.id === selectedId}
-                  onPress={() => setSelectedId(p.id)}
-                />
+                <PersonCard key={p.id} person={p} selected={p.id === selectedId} onPress={() => setSelectedId(p.id)} />
               ))}
             </View>
-
             <Text style={styles.connector}>│{"\n"}▼</Text>
-
             <Text style={styles.treeSection}>ХҮҮХДҮҮД</Text>
             <View style={styles.row}>
               {children.map((p) => (
-                <PersonCard
-                  key={p.id}
-                  person={p}
-                  selected={p.id === selectedId}
-                  onPress={() => setSelectedId(p.id)}
-                />
+                <PersonCard key={p.id} person={p} selected={p.id === selectedId} onPress={() => setSelectedId(p.id)} />
               ))}
-              <TouchableOpacity style={styles.addChild} onPress={() => setScreen("add")}>
-                <Text style={styles.plus}>＋</Text>
-                <Text style={styles.addChildText}>Хүн нэмэх</Text>
-              </TouchableOpacity>
             </View>
-
             {selectedPerson && (
               <View style={styles.selectedPanel}>
                 <Avatar gender={selectedPerson.gender} small />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.selectedName}>{selectedPerson.name}</Text>
-                  <Text style={styles.selectedMeta}>
-                    {selectedPerson.relation} • {selectedPerson.year || "Төрсөн он оруулаагүй"}
-                  </Text>
+                  <Text style={styles.selectedMeta}>{selectedPerson.relation} • {selectedPerson.year || "—"}</Text>
                 </View>
-                <TouchableOpacity
-                  style={styles.smallButton}
-                  onPress={() => setScreen("person")}
-                >
+                <TouchableOpacity style={styles.smallButton} onPress={() => setScreen("person")}>
                   <Text style={styles.smallButtonText}>Мэдээлэл</Text>
                 </TouchableOpacity>
               </View>
@@ -252,98 +269,27 @@ export default function App() {
   function AddPerson() {
     return (
       <SafeAreaView style={styles.safe}>
-        <Header title="Хүн нэмэх" back />
+        <Header title={editingId ? "Мэдээлэл засах" : "Хүн нэмэх"} back />
         <ScrollView contentContainerStyle={styles.formContainer}>
           <Text style={styles.label}>Нэр *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Жишээ: Бат"
-            value={form.name}
-            onChangeText={(v) => setForm({ ...form, name: v })}
-          />
-
+          <TextInput style={styles.input} placeholder="Жишээ: Бат" value={form.name} onChangeText={(v) => setForm({ ...form, name: v })} />
           <Text style={styles.label}>Төрсөн он</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Жишээ: 1990"
-            keyboardType="number-pad"
-            value={form.year}
-            onChangeText={(v) => setForm({ ...form, year: v })}
-          />
-
+          <TextInput style={styles.input} placeholder="Жишээ: 1990" keyboardType="number-pad" value={form.year} onChangeText={(v) => setForm({ ...form, year: v })} />
           <Text style={styles.label}>Хүйс</Text>
           <View style={styles.segment}>
             {["Эрэгтэй", "Эмэгтэй"].map((g) => (
-              <TouchableOpacity
-                key={g}
-                onPress={() => setForm({ ...form, gender: g })}
-                style={[styles.segmentButton, form.gender === g && styles.segmentActive]}
-              >
-                <Text style={form.gender === g ? styles.segmentActiveText : styles.segmentText}>
-                  {g}
-                </Text>
+              <TouchableOpacity key={g} onPress={() => setForm({ ...form, gender: g })} style={[styles.segmentButton, form.gender === g && styles.segmentActive]}>
+                <Text style={form.gender === g ? styles.segmentActiveText : styles.segmentText}>{g}</Text>
               </TouchableOpacity>
             ))}
           </View>
-
           <Text style={styles.label}>Төрөл / Хамаарал</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Жишээ: Аав, Ээж, Ах, Дүү"
-            value={form.relation}
-            onChangeText={(v) => setForm({ ...form, relation: v })}
-          />
-
-          <View style={styles.photoBox}>
-            <Text style={styles.photoIcon}>📷</Text>
-            <Text style={styles.photoText}>Зураг нэмэх</Text>
-            <Text style={styles.photoHint}>Зургийн функцыг дараагийн хувилбарт холбоно.</Text>
-          </View>
-
-          <TouchableOpacity style={styles.primaryButton} onPress={addPerson}>
-            <Text style={styles.primaryButtonText}>Хадгалах</Text>
+          <TextInput style={styles.input} placeholder="Жишээ: Аав, Ээж, Ах, Дүү" value={form.relation} onChangeText={(v) => setForm({ ...form, relation: v })} />
+          <TouchableOpacity style={styles.primaryButton} onPress={handleSavePerson}>
+            <Text style={styles.primaryButtonText}>{editingId ? "Шинэчлэх" : "Хадгалах"}</Text>
           </TouchableOpacity>
         </ScrollView>
         <BottomNav active="add" />
-      </SafeAreaView>
-    );
-  }
-
-  function SearchScreen() {
-    return (
-      <SafeAreaView style={styles.safe}>
-        <Header title="Хайх" back />
-        <View style={styles.searchWrap}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Нэрээр хайх..."
-            value={search}
-            onChangeText={setSearch}
-          />
-        </View>
-        <ScrollView contentContainerStyle={styles.searchList}>
-          {filteredPeople.map((p) => (
-            <TouchableOpacity
-              key={p.id}
-              style={styles.searchPerson}
-              onPress={() => {
-                setSelectedId(p.id);
-                setScreen("person");
-              }}
-            >
-              <Avatar gender={p.gender} small />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.searchName}>{p.name}</Text>
-                <Text style={styles.searchMeta}>{p.relation} • {p.year || "—"}</Text>
-              </View>
-              <Text style={styles.chevron}>›</Text>
-            </TouchableOpacity>
-          ))}
-          {filteredPeople.length === 0 && (
-            <Text style={styles.emptyText}>Хүн олдсонгүй.</Text>
-          )}
-        </ScrollView>
-        <BottomNav active="search" />
       </SafeAreaView>
     );
   }
@@ -357,19 +303,16 @@ export default function App() {
           <Avatar gender={selectedPerson.gender} />
           <Text style={styles.profileName}>{selectedPerson.name}</Text>
           <Text style={styles.profileRelation}>{selectedPerson.relation}</Text>
-
           <View style={styles.infoCard}>
             <InfoRow icon="📅" label="Төрсөн он" value={selectedPerson.year || "Оруулаагүй"} />
             <InfoRow icon="⚥" label="Хүйс" value={selectedPerson.gender} />
             <InfoRow icon="👨‍👩‍👧" label="Төрөл" value={selectedPerson.relation} />
-            <InfoRow icon="🖼️" label="Зураг" value="Зураг нэмэх" />
           </View>
-
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => Alert.alert("Засах", "Засварлах хэсгийг дараагийн хувилбарт нэмнэ.")}
-          >
+          <TouchableOpacity style={styles.primaryButton} onPress={() => startEdit(selectedPerson)}>
             <Text style={styles.primaryButtonText}>Засах</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.primaryButton, styles.dangerButton]} onPress={() => deletePerson(selectedPerson.id)}>
+            <Text style={styles.primaryButtonText}>Устгах</Text>
           </TouchableOpacity>
         </ScrollView>
         <BottomNav active="tree" />
@@ -387,36 +330,27 @@ export default function App() {
     );
   }
 
-  function Settings() {
+  function SearchScreen() {
     return (
       <SafeAreaView style={styles.safe}>
-        <Header title="Тохиргоо" back />
-        <ScrollView contentContainerStyle={styles.settings}>
-          <Text style={styles.settingsSection}>Ерөнхий</Text>
-          <SettingRow title="🌐  Хэл" value="Монгол" />
-          <SettingRow title="☀️  Харагдах байдал" value="Гэрэлтэй" />
-          <SettingRow title="🔔  Мэдэгдэл" value="Асаалттай" />
-
-          <Text style={styles.settingsSection}>Аюулгүй байдал</Text>
-          <SettingRow title="🔑  Нууц үг өөрчлөх" />
-          <SettingRow title="🛡️  Хоёр алхат баталгаажуулалт" value="Унтраах" />
-
-          <Text style={styles.settingsSection}>Бусад</Text>
-          <SettingRow title="☁️  Нөөцлөх / Сэргээх" />
-          <SettingRow title="ⓘ  Бидний тухай" />
-          <SettingRow title="↪  Гарах" danger />
+        <Header title="Хайх" back />
+        <View style={styles.searchWrap}>
+          <TextInput style={styles.searchInput} placeholder="Нэрээр хайх..." value={search} onChangeText={setSearch} />
+        </View>
+        <ScrollView contentContainerStyle={styles.searchList}>
+          {filteredPeople.map((p) => (
+            <TouchableOpacity key={p.id} style={styles.searchPerson} onPress={() => { setSelectedId(p.id); setScreen("person"); }}>
+              <Avatar gender={p.gender} small />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.searchName}>{p.name}</Text>
+                <Text style={styles.searchMeta}>{p.relation} • {p.year || "—"}</Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </TouchableOpacity>
+          ))}
         </ScrollView>
-        <BottomNav active="settings" />
+        <BottomNav active="search" />
       </SafeAreaView>
-    );
-  }
-
-  function SettingRow({ title, value, danger }) {
-    return (
-      <TouchableOpacity style={styles.settingRow}>
-        <Text style={[styles.settingTitle, danger && styles.danger]}>{title}</Text>
-        <Text style={styles.settingValue}>{value || "›"}</Text>
-      </TouchableOpacity>
     );
   }
 
@@ -425,11 +359,10 @@ export default function App() {
       <View style={styles.bottomNav}>
         <NavItem icon="⌂" label="Нүүр" active={active === "home"} onPress={() => setScreen("home")} />
         <NavItem icon="⌕" label="Хайх" active={active === "search"} onPress={() => setScreen("search")} />
-        <TouchableOpacity style={styles.fab} onPress={() => setScreen("add")}>
+        <TouchableOpacity style={styles.fab} onPress={() => { setEditingId(null); setForm({ name: "", year: "", gender: "Эрэгтэй", relation: "Хамаатан" }); setScreen("add"); }}>
           <Text style={styles.fabText}>＋</Text>
         </TouchableOpacity>
         <NavItem icon="☷" label="Мод" active={active === "tree"} onPress={() => setScreen("tree")} />
-        <NavItem icon="⚙" label="Профайл" active={active === "settings"} onPress={() => setScreen("settings")} />
       </View>
     );
   }
@@ -447,6 +380,77 @@ export default function App() {
   if (screen === "tree") return <Tree />;
   if (screen === "add") return <AddPerson />;
   if (screen === "search") return <SearchScreen />;
-  if (screen === "person") return <Person />;
-  return <Settings />;
+  return <Person />;
 }
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: "#F7F9FC" },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, backgroundColor: "#FFF", borderBottomWidth: 1, borderColor: "#EEE" },
+  headerTitle: { fontSize: 18, fontWeight: "bold" },
+  headerButton: { padding: 8 },
+  headerButtonText: { fontSize: 24 },
+  menuText: { fontSize: 20 },
+  searchIcon: { fontSize: 20 },
+  homeContent: { padding: 16 },
+  hero: { alignItems: "center", marginVertical: 20 },
+  heroTree: { fontSize: 50 },
+  welcome: { fontSize: 22, fontWeight: "bold", marginTop: 8 },
+  subWelcome: { color: "#666", marginTop: 4 },
+  menuCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", padding: 16, borderRadius: 12, marginBottom: 12 },
+  menuEmoji: { fontSize: 24, marginRight: 16 },
+  menuInfo: { flex: 1 },
+  menuTitle: { fontSize: 16, fontWeight: "bold" },
+  menuSubtitle: { color: "#888", fontSize: 12 },
+  chevron: { fontSize: 20, color: "#CCC" },
+  treeScroll: { padding: 20 },
+  tree: { alignItems: "center" },
+  treeSection: { fontSize: 12, fontWeight: "bold", color: "#888", marginVertical: 10 },
+  row: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center" },
+  personCard: { backgroundColor: "#FFF", padding: 12, borderRadius: 8, alignItems: "center", margin: 6, minWidth: 80, borderWidth: 1, borderColor: "#EEE" },
+  personCardSelected: { borderColor: "#007AFF", backgroundColor: "#F0F8FF" },
+  personName: { fontWeight: "bold", fontSize: 14, marginTop: 4 },
+  personMeta: { fontSize: 10, color: "#666" },
+  personYear: { fontSize: 10, color: "#999" },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#E1E8ED", justifyContent: "center", alignItems: "center" },
+  avatarSmall: { width: 30, height: 30, borderRadius: 15 },
+  avatarText: { fontSize: 20 },
+  avatarTextSmall: { fontSize: 14 },
+  connector: { textAlign: "center", color: "#AAA", marginVertical: 4 },
+  selectedPanel: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", padding: 12, borderRadius: 8, marginTop: 20, width: "100%" },
+  selectedName: { fontWeight: "bold" },
+  selectedMeta: { color: "#666", fontSize: 12 },
+  smallButton: { backgroundColor: "#007AFF", padding: 8, borderRadius: 6 },
+  smallButtonText: { color: "#FFF", fontSize: 12 },
+  formContainer: { padding: 16 },
+  label: { fontSize: 14, fontWeight: "bold", marginVertical: 8 },
+  input: { backgroundColor: "#FFF", padding: 12, borderRadius: 8, borderWidth: 1, borderColor: "#DDD" },
+  segment: { flexDirection: "row", marginVertical: 8 },
+  segmentButton: { flex: 1, padding: 12, alignItems: "center", backgroundColor: "#EEE", borderRadius: 8, marginRight: 8 },
+  segmentActive: { backgroundColor: "#007AFF" },
+  segmentText: { color: "#333" },
+  segmentActiveText: { color: "#FFF", fontWeight: "bold" },
+  primaryButton: { backgroundColor: "#007AFF", padding: 16, borderRadius: 8, alignItems: "center", marginTop: 16 },
+  dangerButton: { backgroundColor: "#FF3B30" },
+  primaryButtonText: { color: "#FFF", fontWeight: "bold" },
+  personContainer: { padding: 16, alignItems: "center" },
+  profileName: { fontSize: 22, fontWeight: "bold", marginTop: 8 },
+  profileRelation: { color: "#666", marginBottom: 16 },
+  infoCard: { backgroundColor: "#FFF", borderRadius: 8, width: "100%", padding: 8, marginBottom: 16 },
+  infoRow: { flexDirection: "row", padding: 12, borderBottomWidth: 1, borderBottomColor: "#EEE" },
+  infoIcon: { marginRight: 12 },
+  infoLabel: { flex: 1, color: "#666" },
+  infoValue: { fontWeight: "bold" },
+  searchWrap: { padding: 16 },
+  searchInput: { backgroundColor: "#FFF", padding: 12, borderRadius: 8, borderWidth: 1, borderColor: "#DDD" },
+  searchList: { padding: 16 },
+  searchPerson: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF", padding: 12, borderRadius: 8, marginBottom: 8 },
+  searchName: { fontWeight: "bold" },
+  searchMeta: { color: "#666", fontSize: 12 },
+  bottomNav: { flexDirection: "row", backgroundColor: "#FFF", borderTopWidth: 1, borderColor: "#EEE", paddingVertical: 8 },
+  navItem: { flex: 1, alignItems: "center" },
+  navIcon: { fontSize: 20, color: "#888" },
+  navLabel: { fontSize: 10, color: "#888" },
+  navActive: { color: "#007AFF" },
+  fab: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#007AFF", justifyContent: "center", alignItems: "center", marginTop: -12 },
+  fabText: { color: "#FFF", fontSize: 24 },
+});
